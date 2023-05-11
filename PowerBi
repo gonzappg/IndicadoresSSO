@@ -1,0 +1,201 @@
+import pandas as pd
+import datetime
+import numpy as np
+
+#Importar funciones
+from funciones import cap, cd,pda, gp
+
+#Creamos la funcion
+def powerbi():
+    #Traer ruta de los archivos
+    ruta_cap = f'Reportes a cargar/202303 - cap.xlsx'
+    ruta_cd = f'Reportes a cargar/202303 - cd.xlsx'
+    ruta_cpda = f'Reportes a cargar/202303 - cpda.xlsx'
+    ruta_gp = f'Reportes a cargar/202303 - gp.xlsx'
+
+    #Crear los dfs llamando las funciones
+    df_cap = cap(ruta_cap)
+    df_cd = cd(ruta_cd)
+    df_pda = pda(ruta_cpda)
+    df_gp = gp(ruta_gp)
+
+    #Combinar y crear df_bi
+    df1 = pd.merge(df_gp,df_cd,on='Unidad_bi',how='outer')
+    df2 = pd.merge(df1,df_cap,on='Unidad_bi',how='outer')
+    df3 = pd.merge(df2,df_pda,on='Unidad_bi', how='outer')
+    df_bi = df3
+
+    #Crear la unidad 'Total Grupo'
+    # Agregar una fila "Total unidades" y obtener la suma de indicadores para cada unidad menos "Terminales Marval Norte" por que se esaría sumando dos veces
+    # Seleccionar la fila que se desea excluir de la suma
+    fila_a_excluir = df_bi.loc[df_bi['Unidad_bi'] == 'Terminales Marval Norte']
+
+    # Agrupar las unidades y obtener la suma de indicadores para cada unidad, excluyendo la fila seleccionada
+    df_total = df_bi.loc[df_bi['Unidad_bi'] != 'Terminales Marval Norte'].groupby(['Unidad_bi']).sum().reset_index()
+
+    # Agregar una fila "Total unidades" y obtener la suma de indicadores para todas las unidades, excluyendo la fila seleccionada
+    total_unidades = df_bi.loc[df_bi['Unidad_bi'] != 'Terminales Marval Norte'][['Accidentes Con tiempo Perdido', 'Accidentes Sin tiempo Perdido',
+                                                                            'Dotación promedio','Días Perdidos','Eventos con Daño Material',
+                                                                            'Horas Hombre (Exposición a riesgo)','A subir (obl)','Subidos (obl)',
+                                                                            'Meta','Realizado','Fecha Cierre','Fecha Plazo']].sum().to_frame().transpose()
+    total_unidades['Unidad_bi'] = 'Total Grupo'
+    df_bi = df_bi.append(total_unidades)
+
+    # Crear KPIS Mensuales, luego los acumulados
+    df_bi['Frecuencia Simple(mensual)'] = (df_bi['Accidentes Con tiempo Perdido']*1000000)/df_bi['Horas Hombre (Exposición a riesgo)']
+    df_bi['Frecuencia Total'] = ((df_bi['Accidentes Con tiempo Perdido']+df_bi['Accidentes Sin tiempo Perdido']+df_bi['Eventos con Daño Material']*1000000)/df_bi['Horas Hombre (Exposición a riesgo)'])
+    df_bi['Gravedad'] = (df_bi['Días Perdidos']*1000000)/df_bi['Horas Hombre (Exposición a riesgo)']
+    df_bi['Accidentabilidad'] = (df_bi['Accidentes Con tiempo Perdido']*100)/df_bi['Dotación promedio']
+    df_bi['Cumplimiento Documental'] = df_bi['Subidos (obl)']/df_bi['A subir (obl)']
+    df_bi['Cumplimiento de Actividades'] = df_bi['Realizado']/df_bi['Meta']
+    df_bi['Planes de Accion'] = df_bi['Fecha Cierre']/df_bi['Fecha Plazo']
+
+    #Cambiar nombres columnas
+    df_bi= df_bi.rename(columns={'Eventos con Daño Material': 'Daño Material','Horas Hombre (Exposición a riesgo)':'HH','A subir (obl)':'Documentos Requeridos','Subidos (obl)':'Documentos Ingresados',
+                             'Realizado':'Actividades Realizadas','Meta':'Actividades Programadas','Fecha plazo':'Planes Programados','Fecha cierre':'Planes Cerrados'})
+    
+    #Agregar columna de año y fecha
+    #Obtener fecha actual
+    hoy = datetime.datetime.today()
+
+    #Calcular la fecha correspondiente al año actual y mes anterior
+    if hoy.month == 1:
+        fecha = hoy.replace(year=hoy.year-1, month=12, day=1)
+    else:
+        fecha = hoy.replace(month=hoy.month-1,day=1)
+
+    #Obtener el mes y año actual en numero:
+    mes_actual = datetime.datetime.now().month
+    año_actual = datetime.datetime.now().year
+    
+    #Evaluamos la posibilidades a la hora de cargar los datos en fechas de años anteriores
+    if mes_actual == 1:
+        mes_carga = 12
+        año_carga = año_actual-1
+    else: 
+        mes_carga = mes_actual-1
+        año_carga = año_actual
+
+    # Creamos dos columnas (listas) nuevas correspondiente al Año y Mes
+    # La columna año debe tener tantas veces el valor como el total de registros en el df
+    lista_año =[]
+    for año in range(len(df_bi)):
+        lista_año.append(año_carga)
+
+    lista_mes =[]
+    for mes in range(len(df_bi)):
+        lista_mes.append(mes_carga)
+
+    # Insertamos la nueva columna en la segunda posición
+    df_bi.insert(0, 'fecha', fecha.strftime('%d-%m-%Y'))
+    df_bi.insert(1, 'Año', lista_año)
+    df_bi.insert(2, 'Mes', lista_mes)
+        
+    #Cambiar valores nulos a 0
+    df_bi.fillna(0, inplace=True)
+
+    # Cambiar orden y nombre de los campos
+    # primero cambiaremos el nombre:
+    df_bi = df_bi.rename(columns={
+                        'Accidentes Con tiempo Perdido': 'GPR3',
+                        'Accidentes Sin tiempo Perdido':'GPR4',
+                        'Dotación promedio': 'GPR2',
+                        'Días Perdidos':'GPR6',
+                        'Daño Material':'GPR5',
+                        'HH':'GPR1',
+                        'Documentos Requeridos':'DOC1',
+                        'Documentos Ingresados':'DOC2',
+                        'Actividades Programadas':'APR1',
+                        'Actividades Realizadas':'APR2',
+                        'Fecha Cierre': 'PDA2',
+                        'Fecha Plazo':'PDA1',
+                        'Frecuencia Simple(mensual)':'KM1',
+                        'Frecuencia Total':'KM2',
+                        'Gravedad':'KM3',
+                        'Accidentabilidad':'KM4',
+                        'Cumplimiento Documental':'KM5',
+                        'Cumplimiento de Actividades':'KM6',
+                        'Planes de Accion':'KM7'})
+    #Crear diccionario que asocia nombres con numeros
+    meses = {1: 'enero', 2: 'febrero', 3: 'marzo', 4: 'abril', 5: 'mayo', 6: 'junio', 
+            7: 'julio', 8: 'agosto', 9: 'septiembre', 10: 'octubre', 11: 'noviembre', 12: 'diciembre'}
+        
+    #Crear columna MesStr
+    df_bi['Mes_str'] = df_bi['Mes'].apply(lambda x: meses[x])
+
+    # Ordenamos columnas segun archivo df_main
+    df_bi = df_bi.reindex(columns=['fecha','Año','Mes','Mes_str','Unidad_bi','GPR1','GPR2','GPR3','GPR4','GPR5','GPR6','DOC1','DOC2',
+                                   'APR1','APR2','PDA1','PDA2','KM1','KM2','KM3','KM4','KM5','KM6','KM7'])
+
+    #Llamar al df principal
+    ruta = f'DataSET/SSO_DataSet.csv'
+    df_main = pd.read_csv(ruta,delimiter=';')
+    #Concatenamos df_bi a df_main (actualizamos con los valores del nuevo mes)
+    df_main = pd.concat([df_main,df_bi], join='outer')
+    
+    df_main = df_main.reset_index(drop=True)
+
+    # Para generar el indicador acumulado se puede utilizar la funcion groupby para agrupar por Unidad y año y luego transform con el parametro 'cumsum' para sumar los valores de cada grupo
+    # El resultado se almacena en la nueva columna de indicador acumulado (Acum.)
+
+    # Cumsum para una frecuencia acumulada en numero: Frecuencia Simple acum, Frecuencia Total acum, gravedad acum, 
+    df_main['ACTP Acum'] = df_main.groupby(['Unidad_bi','Año'])['GPR3'].cumsum()
+    df_main['HH Acum'] = df_main.groupby(['Unidad_bi','Año'])['GPR1'].cumsum() 
+    df_main['KA1']= (df_main['ACTP Acum']*1000000)/df_main['HH Acum']
+
+    df_main['ASTP Acum'] = df_main.groupby(['Unidad_bi','Año'])['GPR4'].cumsum()
+    df_main['DañoMaterialAcum'] = df_main.groupby(['Unidad_bi','Año'])['GPR5'].cumsum()
+    df_main['KA2'] = ((df_main['ACTP Acum']+df_main['ASTP Acum']+df_main['DañoMaterialAcum'])*1000000)/df_main['HH Acum']
+
+    df_main['DiasPerdidosAcum'] = df_main.groupby(['Unidad_bi','Año'])['GPR6'].cumsum()
+    df_main['KA3'] = (df_main['DiasPerdidosAcum']*1000000)/df_main['HH Acum']
+
+    # Aquellas que son procentuales se debe hacer un paso mas largo calculado el acumulado para cada metrica y luego calculando el indicador acumulado
+    df_main['Documentos Ingresados Acum'] = df_main.groupby(['Unidad_bi','Año'])['DOC2'].cumsum()
+    df_main['Documentos Requeridos Acum'] = df_main.groupby(['Unidad_bi','Año'])['DOC1'].cumsum()
+    df_main['KA4'] = df_main['Documentos Ingresados Acum']/df_main['Documentos Requeridos Acum']
+
+    df_main['Actividades Programadas Acum.'] = df_main.groupby(['Unidad_bi','Año'])['APR1'].cumsum()
+    df_main['Actividades Realizadas Acum.'] = df_main.groupby(['Unidad_bi','Año'])['APR2'].cumsum()
+    df_main['KA5'] = df_main['Actividades Realizadas Acum.']/df_main['Actividades Programadas Acum.']
+
+    df_main['Fecha Cierre Acum.'] = df_main.groupby(['Unidad_bi','Año'])['PDA2'].cumsum()
+    df_main['Fecha Plazo Acum.'] = df_main.groupby(['Unidad_bi','Año'])['PDA1'].cumsum()
+    df_main['KA6'] = df_main['Fecha Cierre Acum.'] /df_main['Fecha Plazo Acum.']
+
+    #Para valores null e inf a 0
+    df_main.fillna(0, inplace=True)
+    df_main = df_main.replace([np.inf,-np.inf],0)
+    # Eliminar campos extra
+    df_main = df_main.drop(['Documentos Ingresados Acum','Documentos Requeridos Acum','Actividades Programadas Acum.',
+                            'Actividades Realizadas Acum.','Fecha Cierre Acum.','Fecha Plazo Acum.','DiasPerdidosAcum','DañoMaterialAcum','ASTP Acum','HH Acum','ACTP Acum'], axis=1)
+    df_main = df_main.rename(columns={
+                    'GPR1':'HH',
+                    'GPR3': 'ACTP',
+                    'GPR4': 'ASTP',
+                    'GPR2':'Dotacion',
+                    'GPR6': 'DiasPerdidos',
+                    'GPR5' : 'DañoMaterial',
+                    'DOC1':'DocRequeridos',
+                    'DOC2': 'DocIngresados',
+                    'APR1':'ActProgramadas',
+                    'APR2':'ActRealizadas',
+                    'PDA2':'FechaCierre',
+                    'PDA1': 'FechaPlazo',
+                    'KM1':'FrecienciaSimple',
+                    'KM2':'FrecuenciaTotal',
+                    'KM3':'Gravedad',
+                    'KM4':'Accidentabilidad',
+                    'KM5':'CumpDoc',
+                    'KM6':'CumpAct',
+                    'KM7':'PDA',
+                    'KA1':'FSimpleAcum',
+                    'KA2': 'FTotalAcum',
+                    'KA3':'GravedadAcum',
+                    'KA4':'CumpDocAcum',
+                    'KA5':'CumpActAcum',
+                    'KA6':'PDAAcum'})
+    
+    #Exportar archivo bi
+    df_main.to_csv('df_main.csv',index = False,encoding='UTF-8-sig',sep= ';')
+    return 'Archivo cargado con exito'
