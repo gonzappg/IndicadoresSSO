@@ -3,7 +3,440 @@ import datetime
 import numpy as np
 
 #Importar funciones
-from funciones import cap, cd,pda, gp
+#from funciones import cap, cd,pda, gp
+
+#Función Cumplimiento de Actividades Preventivas (CAP):
+def cap(ruta):
+    #Entry
+    df_cap = pd.read_excel(ruta)
+    #Transform
+    # Se deben transformar los niveles organizacionales a los mismos Unidades del archivo BI
+    df_cap = df_cap.rename(columns={'Nivel(es)Org.': 'Unidad_bi'})
+
+    # 1. Juntar los valores de Texval y de Magallanes pues tienen mas de un valor
+    #print(f"Texval: {len(df_cap[df_cap['Unidad_bi'] =='Texval'])}")
+    #print(f"Magallanes: {len(df_cap[df_cap['Unidad_bi'] =='Magallanes'])}")
+
+    #Definir la palabra clave
+    kw = 'Texval'
+
+    #Buscar la palabra clave en el campo 'Unidad_bi' y cambiarla por la palabra clave
+    df_cap['Unidad_bi'] = df_cap['Unidad_bi'].apply(lambda x: kw if kw in x else x)
+    
+    kw = 'Magallanes'
+    df_cap['Unidad_bi'] = df_cap['Unidad_bi'].apply(lambda x: kw if kw in x else x)
+    
+    # 2. Ahora cambiar los nombres de cada valor al requerido en Unidad_bi
+    # Definir la palabra clave y la palabra reemplazo
+    kw = 'Terminal Marval Talcahuano'
+    rem = 'TMT'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_cap['Unidad_bi'] = df_cap['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Flota Fast Truck Norte'
+    rem = 'FT Norte'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_cap['Unidad_bi'] = df_cap['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Terminales Marval Santiago'
+    rem = 'TMS'
+    df_cap['Unidad_bi'] = df_cap['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Conexiones Quintero'
+    rem = 'CX Quintero'
+    df_cap['Unidad_bi'] = df_cap['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Alije Talcahuano'
+    rem = 'Alije THNO'
+    df_cap['Unidad_bi'] = df_cap['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Fast Truck Zona Centro'
+    rem = 'FT Centro'
+    df_cap['Unidad_bi'] = df_cap['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    #Generar pivot table solo con los campos unidad_bi, realizado y meta
+    pt_cap = pd.pivot_table(df_cap, values={'Realizado','Meta'}, index = 'Unidad_bi', aggfunc = 'sum')
+
+    #Convertir pivot table en DF
+    pt_cap = pt_cap.reset_index()
+    
+    # 3. generar la unidad 'Terminales Marval Norte' unificando los valores de TMA, TMM y TMI
+    #Seleccionar las filas que queremos sumar ojo que estan ubicadas en distintos lugares
+    filas = pt_cap['Unidad_bi'].iloc[[3,7,8,9,13]]
+    meta = pt_cap['Meta'].iloc[[3,7,8,9,13]].sum()
+    realizado = pt_cap['Realizado'].iloc[[3,7,8,9,13]].sum()
+
+    #Generamos un nuevo df
+    df1 = pd.DataFrame({'Unidad_bi':['Terminales Marval Norte'], 'Meta':[meta],'Realizado':[realizado]})
+    df1
+
+    #Reemplazar la fila de terminales marval norte (13) con los valores de df1
+    pt_cap.loc[13] = df1.loc[0]
+    pt_cap
+
+    #Eliminar unidades extras: Marval Areas Administrativas, Nivel organizacional no asociado o no vigente, SVTI Cervantes
+    valores_a_eliminar = ['Pornac']
+    pt_cap = pt_cap[~pt_cap['Unidad_bi'].isin(valores_a_eliminar)].reset_index(drop=True)
+
+    #creamos un nuevo df
+    df2 = pd.DataFrame({
+        'Unidad_bi': ['Bodega ERA'],
+        'Meta': [0],
+        'Realizado': [0],
+    })
+
+    #Concatenamos
+    pt_cap = pd.concat([pt_cap, df2], ignore_index=True)
+
+    #Finalmente ordenaremos df de manera ascendente en torno a la variable Unidad_bi
+    df_cap = pt_cap.sort_values('Unidad_bi', ascending=True,ignore_index=True)
+    
+    return df_cap
+# Funcion Cumplimiento Documental (CD):
+def cd(ruta):
+    df_cd = pd.read_excel(ruta, header=3)
+    # Transform
+    # Una vez ya tenemos el df, vemos que correspondia a una tabla con "Combinar y centrar" para arreglar ello, crearemos una nueva columna llamda "Unidad_bi" 
+    # la cual evaluara si las columnas Nivel 4 hasta Nivel 1 presenta valores. Si la primera presenta valores se deja en la nueva columna, en caso contrario 
+    # se pasa al nivel menor.... asi sucesivamente hasta que se complete la informacion
+    #Definir una funcion para buscar el primer valor que se encuentrre en la columnas
+    def buscar_valor(row):
+        for col in ['Nivel 4','Nivel 3','Nivel 2','Nivel 1']:
+            if not pd.isna(row[col]):
+                return row[col]
+        return None
+
+    #Crear una nueva columna utilizando la función buscar_valor
+    #Apply sirve para aplicar una funcion en cada fila del DF
+    df_cd['Unidad_bi'] = df_cd.apply(buscar_valor,axis=1)
+
+    #Generar pivot table solo con los campos unidad_bi, Subidos (obl) y A subir (obl)
+    pt_cd = pd.pivot_table(df_cd, values={'Subidos (obl)','A subir (obl)'}, index = 'Unidad_bi', aggfunc = 'sum')
+
+    #Transformar a df
+    pt_cd = pt_cd.reset_index()
+
+    #Eliminar unidades extras: Marval Areas Administrativas, Nivel organizacional no asociado o no vigente, SVTI Cervantes
+    valores_a_eliminar = ['Nivel organizacional no asociado o no vigente', 'SVTI Cervantes','Marval Areas Administrativas']
+    pt_cd = pt_cd[~pt_cd['Unidad_bi'].isin(valores_a_eliminar)].reset_index(drop=True)
+
+    #Generar la unidad 'Terminales Marval Norte' unificando los valores de TMA, TMM y TMI
+    #Seleccionar las filas que queremos sumar ojo que estan ubicadas en distintos lugares
+    filas = pt_cd['Unidad_bi'].iloc[[3,6,7,8]]
+    a_subir = pt_cd['A subir (obl)'].iloc[[3,6,7,8]].sum()
+    subidos = pt_cd['Subidos (obl)'].iloc[[3,6,7,8]].sum()
+
+    #Generamos un nuevo df
+    df1 = pd.DataFrame({'Unidad_bi':['Terminales Marval Norte'], 'A subir (obl)':[a_subir],'Subidos (obl)':[subidos]})
+    df1
+
+    # Juntamos dfs con la funcion concat
+    pt_cd = pd.concat([pt_cd, df1], ignore_index=True)
+    df_cd = pt_cd
+
+    # Rename
+    # Definir la palabra clave y la palabra reemplazo  
+    kw = 'Terminal Marval Talcahuano'
+    rem = 'TMT'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_cd['Unidad_bi'] = df_cd['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Flota Fast Truck Norte'
+    rem = 'FT Norte'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_cd['Unidad_bi'] = df_cd['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Terminales Marval Santiago'
+    rem = 'TMS'
+    df_cd['Unidad_bi'] = df_cd['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Conexiones Quintero'
+    rem = 'CX Quintero'
+    df_cd['Unidad_bi'] = df_cd['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Alije Talcahuano'
+    rem = 'Alije THNO'
+    df_cd['Unidad_bi'] = df_cd['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Fast Truck Zona Centro'
+    rem = 'FT Centro'
+    df_cd['Unidad_bi'] = df_cd['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Contratos Magallanes'
+    rem = 'Magallanes'
+    df_cd['Unidad_bi'] = df_cd['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    #creamos un nuevo df
+    df2 = pd.DataFrame({
+        'Unidad_bi': ['Bodega ERA'],
+        'A subir (obl)': [0],
+        'Subidos (obl)': [0],
+    })
+
+    #Concatenamos
+    df_cd = pd.concat([df_cd, df2], ignore_index=True)
+
+    #Finalmente ordenaremos df de manera ascendente en torno a la variable Unidad_bi
+    df_cd = df_cd.sort_values('Unidad_bi', ascending=True, ignore_index=True)
+
+    return df_cd
+# Función Cumplimiento Planes de Acción (PDA):
+def pda(ruta):
+    df_cpda = pd.read_excel(ruta, header=3)
+    #Renombrar
+    df_cpda = df_cpda.rename(columns={'Área organizacional':'Unidad_bi','Fecha plazo':'fp','Fecha cierre':'fc'})
+    # Reemplazar valores nulos por np.nan
+    df_cpda.replace(r'^\s*$', value=pd.NA, regex=True,inplace=True)
+    #Agrupar por areas organizacionales as Unidad_bi
+    #Definir la palabra clave
+    kw = 'Texval'
+
+    #Buscar la palabra clave en el campo 'Unidad_bi' y cambiarla por la palabra clave
+    df_cpda['Unidad_bi'] = df_cpda['Unidad_bi'].apply(lambda x: kw if kw in x else x)
+
+    kw = 'Teporval'
+
+    #Buscar la palabra clave en el campo 'Unidad_bi' y cambiarla por la palabra clave
+    df_cpda['Unidad_bi'] = df_cpda['Unidad_bi'].apply(lambda x: kw if kw in x else x)
+
+    kw = 'Seaport'
+
+    #Buscar la palabra clave en el campo 'Unidad_bi' y cambiarla por la palabra clave
+    df_cpda['Unidad_bi'] = df_cpda['Unidad_bi'].apply(lambda x: kw if kw in x else x)
+
+    # Definir la palabra clave y la palabra reemplazo
+    kw = 'Carga Nacional'
+    rem = 'Seaport'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_cpda['Unidad_bi'] = df_cpda['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Conexiones Quintero'
+    rem = 'CX Quintero'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_cpda['Unidad_bi'] = df_cpda['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Flota Fast Truck Norte'
+    rem = 'FT Norte'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_cpda['Unidad_bi'] = df_cpda['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Terminal Marval Talcahuano'
+    rem = 'TMT'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_cpda['Unidad_bi'] = df_cpda['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Terminales Marval Santiago'
+    rem = 'TMS'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_cpda['Unidad_bi'] = df_cpda['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'Mantencion Corporativa MVL'
+    rem = 'Teporval'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_cpda['Unidad_bi'] = df_cpda['Unidad_bi'].apply(lambda x: x.replace(kw,rem))
+
+    #Generar pivot table solo con los campos unidad_bi, Subidos (obl) y A subir (obl)
+    pt_cpda = pd.pivot_table(df_cpda, values={'fp','fc'}, index = 'Unidad_bi', aggfunc = 'count', fill_value=0)
+
+    #Transformar a df
+    pt_cpda = pt_cpda.reset_index()
+    pt_cpda = pt_cpda.sort_values('Unidad_bi', ascending=True, ignore_index=True)
+    # Generar Terminales Zona Norte
+    #Seleccionar las filas que queremos sumar ojo que estan ubicadas en distintos lugares y pueden cambiar eliminando
+    fc = pt_cpda['fc'].iloc[[2,6,7]].sum()
+    fp = pt_cpda['fp'].iloc[[2,6,7]].sum()
+
+    #Generamos un nuevo df
+    df1 = pd.DataFrame({'Unidad_bi':['Terminales Marval Norte'], 'fc':[fc],'fp':[fp]})
+    # Juntamos dfs con la funcion concat
+    pt_cpda = pd.concat([pt_cpda, df1], ignore_index=True)
+    # Se crea un DF que contiene todas las unidades bi para luego agregar las calculadas
+    df = pd.DataFrame({
+        'Unidad_bi': ['Alije THNO','Bodega ERA','CX Quintero','FT Centro','FT Norte','Magallanes','Seaport','TMA','TMI','TMM','TMS','TMT','Teporval','Terminales Marval Norte','Texval'],
+        'fc': [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        'fp': [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+        })
+
+    # Reemplazar los valores de pt_cpda en df
+    # Realizamos un merge de los dos DataFrames, usando la columna 'Unidad_id' como clave
+    df1 = df.merge(pt_cpda, on='Unidad_bi', how='left', suffixes=('_orig', '_nuevo'))
+
+    # Reemplazamos los valores de la columna '_orig' con los de '_nuevo' cuando estos no sean nulos
+    df1['fc_orig'] = df1['fc_nuevo'].fillna(df1['fc_orig'])
+    df1['fp_orig'] = df1['fp_nuevo'].fillna(df1['fp_orig'])
+
+    # Eliminamos las columnas '_nuevo'
+    df1.drop('fc_nuevo', axis=1, inplace=True)
+    df1.drop('fp_nuevo', axis=1, inplace=True)
+
+    df_cpda = df1
+    df_cpda = df_cpda.rename(columns={'fc_orig': 'Fecha Cierre','fp_orig':'Fecha Plazo'})
+    return df_cpda
+# Función Gestion Preventiva (GP):
+def gp(ruta):
+    df_gp = pd.read_excel(ruta)
+    #Cambiaremos los titulos de las Unidades a reportar por los requerido en Unidad_bi
+    # Definir la palabra clave y la palabra reemplazo
+    kw = 'CX QUINTERO'
+    rem = 'CX Quintero'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_gp['UNIDAD A REPORTAR'] = df_gp['UNIDAD A REPORTAR'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'TERMINAL TALCAHUANO'
+    rem = 'TMT'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_gp['UNIDAD A REPORTAR'] = df_gp['UNIDAD A REPORTAR'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'TEXVAL'
+    rem = 'Texval'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_gp['UNIDAD A REPORTAR'] = df_gp['UNIDAD A REPORTAR'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'TEPORVAL'
+    rem = 'Teporval'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_gp['UNIDAD A REPORTAR'] = df_gp['UNIDAD A REPORTAR'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'FAST TRUCK ZONA CENTRO'
+    rem = 'FT Centro'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_gp['UNIDAD A REPORTAR'] = df_gp['UNIDAD A REPORTAR'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'TERMINAL ANTOFAGASTA'
+    rem = 'TMA'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_gp['UNIDAD A REPORTAR'] = df_gp['UNIDAD A REPORTAR'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'TERMINAL IQUIQUE'
+    rem = 'TMI'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_gp['UNIDAD A REPORTAR'] = df_gp['UNIDAD A REPORTAR'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'TERMINAL MEJILLONES'
+    rem = 'TMM'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_gp['UNIDAD A REPORTAR'] = df_gp['UNIDAD A REPORTAR'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'FAST TRUCK ZONA NORTE'
+    rem = 'FT Norte'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_gp['UNIDAD A REPORTAR'] = df_gp['UNIDAD A REPORTAR'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'TERMINAL SANTIAGO'
+    rem = 'TMS'
+
+    # Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_gp['UNIDAD A REPORTAR'] = df_gp['UNIDAD A REPORTAR'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'MAGALLANES'
+    rem = 'Magallanes'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_gp['UNIDAD A REPORTAR'] = df_gp['UNIDAD A REPORTAR'].apply(lambda x: x.replace(kw,rem))
+
+    kw = 'ALIJE TALCAHUANO'
+    rem = 'Alije THNO'
+
+    #Reemplazar la palabra clave en el campo 'Unidad_bi' por la palabra de reemplazo
+    df_gp['UNIDAD A REPORTAR'] = df_gp['UNIDAD A REPORTAR'].apply(lambda x: x.replace(kw,rem))
+
+    #Convertimos el campo Mes a Reportar a tipo entero
+    meses = {'Enero':1,'Febrero':2,'Marzo':3,'Abril':4,'Mayo':5,'Junio':6,'Julio':7,'Agosto':8,'Septiembre':9,'Octubre':10,'Noviembre':11,'Diciembre':12}
+
+    df_gp['Mes a Reportar'] = df_gp['Mes a Reportar'].apply(lambda x:meses[x])
+
+    # Obtener la fecha actual
+    hoy = datetime.date.today()
+
+    # Obtener el año actual y el mes anterior para este caso el ultimo mes en registro es febrero, por ende hay qye retroceder 2)
+    año = hoy.year
+    mes_ant = (hoy.replace(day=1) - datetime.timedelta(days=1)).month
+    mes_ant -=1
+
+    # Filtramos el Df por año y mes anterior
+    df_filtrado = df_gp[(df_gp['Año'] == año) & (df_gp['Mes a Reportar'] == mes_ant)]
+    df_filtrado = df_filtrado.reset_index()
+
+    #Generar pivot table solo con los campos requeridos
+    pt_gp = pd.pivot_table(df_filtrado, values={'Horas Hombre (Exposición a riesgo)','Dotación promedio','Accidentes Con tiempo Perdido','Accidentes Sin tiempo Perdido',
+                                        'Eventos con Daño Material','Días Perdidos'}, index = 'UNIDAD A REPORTAR', aggfunc = 'sum')
+    pt_gp = pt_gp.reset_index()
+    pt_gp = pt_gp.rename(columns={'UNIDAD A REPORTAR': 'Unidad_bi', 'Accidentes Con tiempo Perdido':'actp','Accidentes Sin tiempo Perdido':'astp','Dotación promedio':'dpro','Días Perdidos':'dper',
+                                'Eventos con Daño Material':'ecdm','Horas Hombre (Exposición a riesgo)':'hh'})
+
+    # Como existe la posibilidad que se reporten menos unidades que las de la tabla bi, debemos actualizar lso valores al df original
+    # Se crea un DF que contiene todas las unidades bi para luego agregar las calculadas
+    df = pd.DataFrame({
+        'Unidad_bi': ['Alije THNO','Bodega ERA','CX Quintero','FT Centro','FT Norte','Magallanes','Seaport','TMA','TMI','TMM','TMS','TMT','Teporval','Terminales Marval Norte','Texval'],
+        'actp': [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        'astp': [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        'dpro': [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        'dper': [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        'ecdm': [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        'hh': [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    })
+
+    # Reemplazar los valores de pt_gp en df
+    # Realizamos un merge de los dos DataFrames, usando la columna 'Unidad_id' como clave
+    df1 = df.merge(pt_gp, on='Unidad_bi', how='left', suffixes=('_orig', '_nuevo'))
+
+    # Reemplazamos los valores de la columna '_orig' con los de '_nuevo' cuando estos no sean nulos
+    df1['actp_orig'] = df1['actp_nuevo'].fillna(df1['actp_orig'])
+    df1['astp_orig'] = df1['astp_nuevo'].fillna(df1['astp_orig'])
+    df1['dpro_orig'] = df1['dpro_nuevo'].fillna(df1['dpro_orig'])
+    df1['dper_orig'] = df1['dper_nuevo'].fillna(df1['dper_orig'])
+    df1['ecdm_orig'] = df1['ecdm_nuevo'].fillna(df1['ecdm_orig'])
+    df1['hh_orig'] = df1['hh_nuevo'].fillna(df1['hh_orig'])
+
+    # Eliminamos las columnas '_nuevo'
+    df1.drop('actp_nuevo', axis=1, inplace=True)
+    df1.drop('astp_nuevo', axis=1, inplace=True)
+    df1.drop('dpro_nuevo', axis=1, inplace=True)
+    df1.drop('dper_nuevo', axis=1, inplace=True)
+    df1.drop('ecdm_nuevo', axis=1, inplace=True)
+    df1.drop('hh_nuevo', axis=1, inplace=True)
+
+    df_gp = df1
+
+    # Generar Terminales Zona Norte
+    #Seleccionar las filas que queremos sumar ojo que estan ubicadas en distintos lugares y pueden cambiar eliminando
+    actp = df_gp['actp_orig'].iloc[[3,6,7,8]].sum()
+    astp = df_gp['astp_orig'].iloc[[3,6,7,8]].sum()
+    dpro = df_gp['dpro_orig'].iloc[[3,6,7,8]].sum()
+    dper = df_gp['dper_orig'].iloc[[3,6,7,8]].sum()
+    ecdm = df_gp['ecdm_orig'].iloc[[3,6,7,8]].sum()
+    hh = df_gp['hh_orig'].iloc[[3,6,7,8]].sum()
+
+    # Actualizar los valores de la fila en posicion 12
+    df_gp.loc[12,'actp_orig'] = actp
+    df_gp.loc[12,'astp_orig'] = astp
+    df_gp.loc[12,'dpro_orig'] = dpro
+    df_gp.loc[12,'dper_orig'] = dper
+    df_gp.loc[12,'ecdm_orig'] = ecdm
+    df_gp.loc[12,'hh_orig'] = hh
+
+    df_gp = df_gp.rename(columns={'actp_orig':'Accidentes Con tiempo Perdido','astp_orig': 'Accidentes Sin tiempo Perdido','dpro_orig': 'Dotación promedio','dper_orig': 'Días Perdidos',
+                                'ecdm_orig': 'Eventos con Daño Material','hh_orig': 'Horas Hombre (Exposición a riesgo)'})
+    return df_gp
 
 #Creamos la funcion
 def powerbi():
